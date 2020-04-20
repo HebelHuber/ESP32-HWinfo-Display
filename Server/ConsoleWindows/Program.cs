@@ -11,13 +11,16 @@ namespace ConsoleWindows
 {
     class Program
     {
-        private const int HistorySmoothing = 20;
+        private const int HistorySmoothing = 10;
 
         private static List<Results> ResultHistory = new List<Results>();
         private static SerialPort port;
+        static int lastIndex = 0;
+        static HardwareInfo info = new HardwareInfo();
 
         static void Main()
         {
+
             do
             {
                 while (!Console.KeyAvailable)
@@ -26,13 +29,13 @@ namespace ConsoleWindows
                     {
                         // communicate
                         DataLoop();
+                        Thread.Sleep(200);
                     }
                     else
                     {
                         // probe for ports
                         ProbingLoop();
-
-                        Thread.Sleep(500);
+                        Thread.Sleep(2000);
                     }
                 }
             } while (Console.ReadKey(true).Key != ConsoleKey.Escape);
@@ -46,6 +49,8 @@ namespace ConsoleWindows
 
         private static void ProbingLoop()
         {
+            Console.WriteLine("probing");
+
             var ports = SerialPort.GetPortNames().ToList();
 
             if (ports.Count == 0)
@@ -65,6 +70,8 @@ namespace ConsoleWindows
                 {
                     tempPort.Open();
                     port = tempPort;
+                    Console.Write(" - success: " + portName);
+                    Console.WriteLine();
                 }
                 catch
                 {
@@ -75,31 +82,20 @@ namespace ConsoleWindows
 
         private static void DataLoop()
         {
-            Console.WriteLine("port open and sending stats, press ESC to stop");
+            ResultHistory.Add(info.GetSystemInfo());
 
-            int lastIndex = 0;
-            HardwareInfo info = new HardwareInfo();
+            if (ResultHistory.Count > HistorySmoothing)
+                ResultHistory.RemoveAt(0);
 
-            do
-            {
-                while (!Console.KeyAvailable && port.IsOpen)
-                {
-                    ResultHistory.Add(info.GetSystemInfo());
+            lastIndex++;
 
-                    if (ResultHistory.Count > HistorySmoothing)
-                        ResultHistory.RemoveAt(0);
+            if (lastIndex > 9)
+                lastIndex = 0;
 
-                    lastIndex++;
+            var payload = "drawer.UpdateScreen(" + ResultHistory.ToSmoothedData(HistorySmoothing).AsParameters(lastIndex) + ")";
+            port.WriteLine(payload + Environment.NewLine);
 
-                    if (lastIndex > 9)
-                        lastIndex = 0;
-
-                    var payload = "drawer.UpdateScreen(" + ResultHistory.ToSmoothedData(HistorySmoothing).AsParameters(lastIndex) + ")";
-                    port.WriteLine(payload + Environment.NewLine);
-
-                    Thread.Sleep(2);
-                }
-            } while (Console.ReadKey(true).Key != ConsoleKey.Escape);
+            Console.Write(".");
         }
     }
 }
