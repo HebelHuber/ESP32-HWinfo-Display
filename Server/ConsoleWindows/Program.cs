@@ -11,7 +11,11 @@ namespace ConsoleWindows
 {
     class Program
     {
-        private const int HistorySmoothing = 10;
+        private const int packetsperSecond = 10;
+        private const int SmoothingSeconds = 2;
+
+        private static int HistorySmoothing => packetsperSecond * SmoothingSeconds;
+        private static int TimeoutMS => 1000 / packetsperSecond;
 
         private static List<Results> ResultHistory = new List<Results>();
         private static SerialPort port;
@@ -29,7 +33,7 @@ namespace ConsoleWindows
                     {
                         // communicate
                         DataLoop();
-                        Thread.Sleep(200);
+                        Thread.Sleep(TimeoutMS);
                     }
                     else
                     {
