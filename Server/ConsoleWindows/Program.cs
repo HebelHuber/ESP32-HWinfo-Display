@@ -96,7 +96,7 @@ namespace ConsoleWindows
             if (lastIndex > 9)
                 lastIndex = 0;
 
-            var payload = "drawer.UpdateScreen(" + ResultHistory.ToSmoothedData(HistorySmoothing).AsParameters(lastIndex) + ")";
+            var payload = "Update(" + ResultHistory.ToSmoothedData(HistorySmoothing).AsParameters(lastIndex) + ")";
             port.WriteLine(payload + Environment.NewLine);
 
             Console.Write(".");
