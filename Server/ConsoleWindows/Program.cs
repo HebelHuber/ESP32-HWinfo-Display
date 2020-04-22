@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.IO.Ports;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using OpenHardwareMonitor.Hardware;
 
@@ -11,95 +15,67 @@ namespace ConsoleWindows
 {
     class Program
     {
-        private const int packetsperSecond = 10;
-        private const int SmoothingSeconds = 2;
+        private const int RateInSeconds = 60;
+        private const string urlCPU = @"http://madhome:8123/api/states/sensor.madwolf_CPU_temp";
+        private const string urlGPU = @"http://madhome:8123/api/states/sensor.madwolf_GPU_temp";
+        private const string AccessToken = @"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiI0MmNiYWIxY2U2MDk0N2NhOGFkNzM3ZTg1ZGFiZTY3ZCIsImlhdCI6MTU4NzU0OTI1OSwiZXhwIjoxOTAyOTA5MjU5fQ.0XTj2dgh6viJVL37klxdgtO74Y7rOhqKNyTcUjicnh0";
 
-        private static int HistorySmoothing => packetsperSecond * SmoothingSeconds;
-        private static int TimeoutMS => 1000 / packetsperSecond;
+        private static HardwareInfo info = new HardwareInfo();
 
-        private static List<Results> ResultHistory = new List<Results>();
-        private static SerialPort port;
-        static int lastIndex = 0;
-        static HardwareInfo info = new HardwareInfo();
 
         static void Main()
         {
-
             do
             {
                 while (!Console.KeyAvailable)
                 {
-                    if (port != null && port.IsOpen)
+                    try
                     {
-                        // communicate
-                        DataLoop();
-                        Thread.Sleep(TimeoutMS);
+                        var data = info.GetSystemInfo();
+
+                        Send(urlCPU, GetPayload((int)data.CPUtemp));
+                        Send(urlGPU, GetPayload((int)data.GPUtemp));
                     }
-                    else
-                    {
-                        // probe for ports
-                        ProbingLoop();
-                        Thread.Sleep(2000);
-                    }
+                    catch { }
+
+                    Thread.Sleep(RateInSeconds * 1000);
                 }
             } while (Console.ReadKey(true).Key != ConsoleKey.Escape);
 
-            port.Close();
-            port.Dispose();
-
-            Console.WriteLine("port closed");
+            Console.WriteLine("Sending stopped");
             Console.ReadKey();
         }
 
-        private static void ProbingLoop()
+        private static void Send(string url, byte[] payload)
         {
-            Console.WriteLine("probing");
+            var myWebRequest = WebRequest.Create(url);
+            var myHttpWebRequest = (HttpWebRequest)myWebRequest;
+            myHttpWebRequest.PreAuthenticate = true;
+            myHttpWebRequest.Method = "POST";
+            myHttpWebRequest.Headers.Add("Authorization", "Bearer " + AccessToken);
+            myHttpWebRequest.Accept = "application/json";
 
-            var ports = SerialPort.GetPortNames().ToList();
+            Stream requestStream = myHttpWebRequest.GetRequestStream();
+            requestStream.Write(payload, 0, payload.Length);
+            requestStream.Close();
 
-            if (ports.Count == 0)
+            var myWebResponse = myWebRequest.GetResponse();
+            var responseStream = myWebResponse.GetResponseStream();
+            if (responseStream != null)
             {
-                Console.WriteLine("No serial ports!");
-                return;
-            }
+                var myStreamReader = new StreamReader(responseStream, Encoding.Default);
+                var replyJson = myStreamReader.ReadToEnd();
+                Console.WriteLine("Response:" + Environment.NewLine + replyJson);
 
-            // try to open ports
-            port = null;
-
-            foreach (var portName in ports)
-            {
-                var tempPort = new SerialPort(portName, 115200, Parity.None, 8, StopBits.One);
-
-                try
-                {
-                    tempPort.Open();
-                    port = tempPort;
-                    Console.Write(" - success: " + portName);
-                    Console.WriteLine();
-                }
-                catch
-                {
-                    Console.WriteLine("could not open port " + portName);
-                }
+                responseStream.Close();
+                myWebResponse.Close();
             }
         }
 
-        private static void DataLoop()
+        private static byte[] GetPayload(int number)
         {
-            ResultHistory.Add(info.GetSystemInfo());
-
-            if (ResultHistory.Count > HistorySmoothing)
-                ResultHistory.RemoveAt(0);
-
-            lastIndex++;
-
-            if (lastIndex > 9)
-                lastIndex = 0;
-
-            var payload = "Update(" + ResultHistory.ToSmoothedData(HistorySmoothing).AsParameters(lastIndex) + ")";
-            port.WriteLine(payload + Environment.NewLine);
-
-            Console.Write(".");
+            var payload = "{\"state\": " + number + ", \"attributes\": {\"unit_of_measurement\": \"°C\"}}";
+            return Encoding.UTF8.GetBytes(payload);
         }
     }
 }
